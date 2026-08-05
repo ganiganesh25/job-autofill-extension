@@ -39,6 +39,17 @@ chrome.runtime.onMessage.addListener(
           sendResponse({ ok: false, error: 'Field index out of range — re-detect fields.' })
           return true
         }
+        // Workday and LinkedIn Easy Apply are SPAs with multi-step wizards:
+        // the element captured at detection time may have been torn out of
+        // the DOM since. Writing to a detached node silently succeeds and
+        // fills nothing, so check before writing.
+        if (!field.element.isConnected) {
+          sendResponse({
+            ok: false,
+            error: 'The page changed since fields were detected — re-detect and try again.',
+          })
+          return true
+        }
         setFieldValue(field.element, message.value)
         sendResponse({ ok: true, data: null })
         return true

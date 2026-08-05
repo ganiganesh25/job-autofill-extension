@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { AiProviderId } from '../lib/storage'
 import {
+  clearStaleApiKeys,
   getActiveProvider,
   getApiKey,
   getProviderSettings,
-  listConfiguredProviders,
+  listProviderKeyStates,
   removeApiKey,
   saveApiKey,
   saveProviderSettings,
@@ -24,12 +25,13 @@ export default function ProviderSettings() {
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
-  const [configured, setConfigured] = useState<AiProviderId[]>([])
+  const [keyStates, setKeyStates] = useState<Partial<Record<AiProviderId, 'ok' | 'stale'>>>({})
+  const [needsReentry, setNeedsReentry] = useState(false)
   const [status, setStatus] = useState('')
 
   useEffect(() => {
     getActiveProvider().then((p) => p && setActive(p))
-    listConfiguredProviders().then(setConfigured)
+    listProviderKeyStates().then(setKeyStates)
   }, [])
 
   useEffect(() => {
@@ -37,22 +39,42 @@ export default function ProviderSettings() {
       setModel(s.model ?? '')
       setBaseUrl(s.baseUrl ?? '')
     })
-    getApiKey(active).then((k) => setApiKey(k ?? ''))
+    // A stale key can't be shown or reused — surface that explicitly instead
+    // of rendering an empty box that looks like nothing was ever saved.
+    getApiKey(active).then((result) => {
+      setApiKey(result.status === 'ok' ? result.apiKey : '')
+      setNeedsReentry(result.status === 'stale')
+    })
   }, [active])
 
   async function handleSave() {
-    if (apiKey) await saveApiKey(active, apiKey)
+    if (apiKey) {
+      await saveApiKey(active, apiKey)
+      setNeedsReentry(false)
+    }
     await saveProviderSettings(active, { model: model || undefined, baseUrl: baseUrl || undefined })
     await setActiveProvider(active)
-    setConfigured(await listConfiguredProviders())
+    setKeyStates(await listProviderKeyStates())
     setStatus('Saved. This provider is now active.')
   }
 
   async function handleRemoveKey() {
     await removeApiKey(active)
     setApiKey('')
-    setConfigured(await listConfiguredProviders())
+    setNeedsReentry(false)
+    setKeyStates(await listProviderKeyStates())
     setStatus('API key removed.')
+  }
+
+  async function handleClearStale() {
+    const cleared = await clearStaleApiKeys()
+    setKeyStates(await listProviderKeyStates())
+    setNeedsReentry(false)
+    setStatus(
+      cleared.length > 0
+        ? `Cleared unrecoverable key(s) for: ${cleared.join(', ')}. Re-enter them below.`
+        : 'No unrecoverable keys to clear.',
+    )
   }
 
   const providerInfo = PROVIDERS.find((p) => p.id === active)!
@@ -71,12 +93,21 @@ export default function ProviderSettings() {
           {PROVIDERS.map((p) => (
             <option key={p.id} value={p.id}>
               {p.label}
-              {configured.includes(p.id) ? ' (configured)' : ''}
+              {keyStates[p.id] === 'ok' ? ' (configured)' : ''}
+              {keyStates[p.id] === 'stale' ? ' (needs re-entry)' : ''}
             </option>
           ))}
         </select>
       </label>
       <br />
+      {needsReentry && (
+        <p style={{ fontSize: 13, color: '#a00' }}>
+          Your saved {providerInfo.label} key was encrypted in a previous browser session and can no
+          longer be decrypted — that&apos;s expected, since the encryption key is never written to
+          disk. Re-enter it below to continue.{' '}
+          <button onClick={handleClearStale}>Clear unrecoverable keys</button>
+        </p>
+      )}
       {providerInfo.needsKey && (
         <label>
           API key: <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} style={{ width: 320 }} />

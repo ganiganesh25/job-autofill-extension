@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { decryptString, encryptString, getOrCreateWrappingKey, isUnlocked } from './crypto'
+import {
+  decryptString,
+  encryptString,
+  getOrCreateWrappingKey,
+  isStale,
+  isUnlocked,
+  loadWrappingKey,
+} from './crypto'
 
 describe('crypto', () => {
   beforeEach(async () => {
@@ -35,5 +42,29 @@ describe('crypto', () => {
     const b = await encryptString('same input', key)
     expect(a.ciphertext).not.toBe(b.ciphertext)
     expect(a.iv).not.toBe(b.iv)
+  })
+
+  it('loadWrappingKey never creates a key', async () => {
+    expect(await loadWrappingKey()).toBeNull()
+    expect(await isUnlocked()).toBe(false)
+  })
+
+  it('marks a payload stale once the session key is gone', async () => {
+    const key = await getOrCreateWrappingKey()
+    const payload = await encryptString('secret', key)
+    expect(isStale(payload, key)).toBe(false)
+
+    await chrome.storage.session.clear()
+    expect(isStale(payload, await loadWrappingKey())).toBe(true)
+
+    // A brand-new session key must not be mistaken for the original.
+    const fresh = await getOrCreateWrappingKey()
+    expect(fresh.id).not.toBe(key.id)
+    expect(isStale(payload, fresh)).toBe(true)
+  })
+
+  it('treats a payload with no keyId as stale', async () => {
+    const key = await getOrCreateWrappingKey()
+    expect(isStale({ iv: 'x', ciphertext: 'y' }, key)).toBe(true)
   })
 })

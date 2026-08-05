@@ -2,7 +2,9 @@ import {
   decryptString,
   encryptString,
   getOrCreateWrappingKey,
+  isStale,
   isUnlocked,
+  loadWrappingKey,
   type EncryptedPayload,
 } from './crypto'
 
@@ -27,18 +29,39 @@ export async function saveApiKey(provider: AiProviderId, apiKey: string): Promis
   await chrome.storage.local.set({ [API_KEYS_STORAGE_KEY]: map })
 }
 
-/** Decrypts and returns a provider's API key, or null if none is saved / session is locked. */
-export async function getApiKey(provider: AiProviderId): Promise<string | null> {
+/**
+ * Why this returns a status rather than `string | null`:
+ *
+ * "no key was ever saved" and "a key is saved but this browser session can no
+ * longer decrypt it" need different UI. Collapsing both to null told the user
+ * "no API key saved" for a key they had definitely saved, with no hint that
+ * re-entering it was the fix — and left the undecryptable ciphertext in place
+ * so the provider still showed as configured forever.
+ */
+export type ApiKeyResult =
+  | { status: 'ok'; apiKey: string }
+  /** Nothing has ever been saved for this provider. */
+  | { status: 'absent' }
+  /** A key is saved, but it was encrypted in a previous browser session. Re-entry required. */
+  | { status: 'stale' }
+
+/** Decrypts a provider's API key. See ApiKeyResult for the three outcomes. */
+export async function getApiKey(provider: AiProviderId): Promise<ApiKeyResult> {
   const map = await readEncryptedKeyMap()
   const encrypted = map[provider]
-  if (!encrypted) return null
-  const wrappingKey = await getOrCreateWrappingKey()
+  if (!encrypted) return { status: 'absent' }
+
+  // Read-only: never mint a wrapping key here. Creating one would guarantee
+  // the decrypt below fails and would overwrite the only key that could ever
+  // have read existing ciphertext.
+  const wrapping = await loadWrappingKey()
+  if (isStale(encrypted, wrapping) || !wrapping) return { status: 'stale' }
+
   try {
-    return await decryptString(encrypted, wrappingKey)
+    return { status: 'ok', apiKey: await decryptString(encrypted, wrapping) }
   } catch {
-    // Wrapping key doesn't match this ciphertext (e.g. storage from a prior
-    // session was never cleared) — treat as absent rather than throwing.
-    return null
+    // Matching keyId but undecryptable means the stored payload is corrupt.
+    return { status: 'stale' }
   }
 }
 
@@ -48,9 +71,44 @@ export async function removeApiKey(provider: AiProviderId): Promise<void> {
   await chrome.storage.local.set({ [API_KEYS_STORAGE_KEY]: map })
 }
 
+/** Per-provider view of what is saved, so the UI can distinguish configured from needs-re-entry. */
+export async function listProviderKeyStates(): Promise<
+  Partial<Record<AiProviderId, 'ok' | 'stale'>>
+> {
+  const map = await readEncryptedKeyMap()
+  const wrapping = await loadWrappingKey()
+  const states: Partial<Record<AiProviderId, 'ok' | 'stale'>> = {}
+  for (const provider of Object.keys(map) as AiProviderId[]) {
+    const payload = map[provider]
+    if (!payload) continue
+    states[provider] = isStale(payload, wrapping) ? 'stale' : 'ok'
+  }
+  return states
+}
+
 export async function listConfiguredProviders(): Promise<AiProviderId[]> {
   const map = await readEncryptedKeyMap()
   return Object.keys(map) as AiProviderId[]
+}
+
+/**
+ * Drops ciphertext that no longer has a matching wrapping key, so a provider
+ * stops advertising itself as configured once its key is unrecoverable.
+ * Returns the providers that were cleared.
+ */
+export async function clearStaleApiKeys(): Promise<AiProviderId[]> {
+  const map = await readEncryptedKeyMap()
+  const wrapping = await loadWrappingKey()
+  const cleared: AiProviderId[] = []
+  for (const provider of Object.keys(map) as AiProviderId[]) {
+    const payload = map[provider]
+    if (payload && isStale(payload, wrapping)) {
+      delete map[provider]
+      cleared.push(provider)
+    }
+  }
+  if (cleared.length > 0) await chrome.storage.local.set({ [API_KEYS_STORAGE_KEY]: map })
+  return cleared
 }
 
 export { isUnlocked }

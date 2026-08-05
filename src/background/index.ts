@@ -11,14 +11,31 @@ chrome.runtime.onInstalled.addListener(() => {
 })
 
 async function handleMessage(message: ExtensionMessage): Promise<ExtensionResponse> {
-  const apiKey = message.provider === 'ollama' ? '' : await getApiKey(message.provider)
-  if (message.provider !== 'ollama' && !apiKey) {
-    return { ok: false, error: `No API key saved for ${message.provider}. Add one in Settings.` }
-  }
-  const settings = await getProviderSettings(message.provider)
-  const provider = createProvider(message.provider, { apiKey: apiKey ?? '', ...settings })
-
+  // Everything, including provider setup, runs inside this try. Anything that
+  // throws before sendResponse is called leaves the message channel open and
+  // the caller's await never settles — which froze the popup permanently.
   try {
+    let apiKey = ''
+    if (message.provider !== 'ollama') {
+      const result = await getApiKey(message.provider)
+      if (result.status === 'absent') {
+        return {
+          ok: false,
+          error: `No API key saved for ${message.provider}. Add one in Settings.`,
+        }
+      }
+      if (result.status === 'stale') {
+        return {
+          ok: false,
+          error: `Your ${message.provider} API key was encrypted in a previous browser session and can't be decrypted. Re-enter it in Settings.`,
+        }
+      }
+      apiKey = result.apiKey
+    }
+
+    const settings = await getProviderSettings(message.provider)
+    const provider = createProvider(message.provider, { apiKey, ...settings })
+
     switch (message.type) {
       case 'GENERATE_ANSWER': {
         const data = await provider.generateAnswer({
@@ -41,12 +58,23 @@ async function handleMessage(message: ExtensionMessage): Promise<ExtensionRespon
         return { ok: true, data }
       }
     }
+
+    // Unknown message type — reply rather than falling off the end, which
+    // would resolve the channel with undefined and throw in the caller.
+    return { ok: false, error: `Unsupported message type: ${(message as { type: string }).type}` }
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
 
 chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
-  handleMessage(message).then(sendResponse)
+  handleMessage(message)
+    // Backstop: handleMessage catches its own errors, but a rejection here
+    // must still produce a response or the caller waits forever.
+    .catch((error: unknown) => ({
+      ok: false as const,
+      error: error instanceof Error ? error.message : String(error),
+    }))
+    .then(sendResponse)
   return true // keep the message channel open for the async response
 })

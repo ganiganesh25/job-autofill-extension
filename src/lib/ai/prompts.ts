@@ -7,6 +7,7 @@ export const RESUME_EXTRACTION_SYSTEM_PROMPT = `You extract structured data from
   "email": string,
   "phone": string (optional),
   "location": string (optional),
+  "country": string (optional),
   "links": { "linkedin": string, "github": string, "portfolio": string } (optional, omit unknown fields),
   "summary": string (optional),
   "skills": string[],

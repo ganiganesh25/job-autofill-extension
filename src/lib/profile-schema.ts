@@ -22,6 +22,9 @@ export const profileSchema = z.object({
   email: z.string().email(),
   phone: z.string().optional(),
   location: z.string().optional(),
+  // Separate from `location` because ATS forms ask for them separately —
+  // Greenhouse renders Country as its own required combobox.
+  country: z.string().optional(),
   links: z
     .object({
       linkedin: z.string().url().optional(),

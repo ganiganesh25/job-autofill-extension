@@ -25,6 +25,8 @@ function profileValueForType(profile: Profile, type: FieldType): string | null {
       return profile.phone || null
     case 'location':
       return profile.location || null
+    case 'country':
+      return profile.country || null
     case 'linkedin':
       return profile.links?.linkedin || null
     case 'github':

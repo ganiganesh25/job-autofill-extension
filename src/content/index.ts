@@ -50,8 +50,21 @@ chrome.runtime.onMessage.addListener(
           })
           return true
         }
-        setFieldValue(field.element, message.value)
-        sendResponse({ ok: true, data: null })
+        // Async because comboboxes have to wait for their listbox to open.
+        void setFieldValue(field, message.value).then(
+          (filled) =>
+            filled
+              ? sendResponse({ ok: true, data: null })
+              : sendResponse({
+                  ok: false,
+                  error: `Couldn't fill "${field.label || field.type}" — no matching option.`,
+                }),
+          (error: unknown) =>
+            sendResponse({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+        )
         return true
       }
       case 'GET_PAGE_TEXT': {

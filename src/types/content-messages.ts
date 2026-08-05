@@ -1,6 +1,6 @@
 // chrome.tabs.sendMessage contract between the popup and a content script.
 // Distinct from types/messages.ts, which covers UI <-> background worker.
-import type { FieldType } from '../content/types'
+import type { ControlKind, FieldType } from '../content/types'
 
 export type ContentMessage =
   | { type: 'DETECT_FIELDS' }
@@ -10,6 +10,8 @@ export type ContentMessage =
 export interface DetectedFieldSummary {
   type: FieldType
   label: string
+  /** How the field has to be written — surfaced so the popup can flag dropdowns and file inputs. */
+  control: ControlKind
 }
 
 export type ContentResponse =

@@ -319,3 +319,135 @@ label {
     animation-duration: 2s;
   }
 }
+
+/* --- Detected-field list --- */
+
+.card.list {
+  padding: 0;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.field-row:first-child {
+  border-top: 0;
+}
+
+.field-row input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+}
+
+.field-row-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  min-width: 0;
+  cursor: pointer;
+  font-weight: 400;
+}
+
+.field-name {
+  font-size: 12px;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
+.field-value {
+  font-size: 12px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.hint {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+.field-row.filled .field-value {
+  color: var(--success);
+}
+
+.outcome {
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.outcome.ok {
+  color: var(--success);
+}
+
+.outcome-retry {
+  font-size: 11px;
+  color: var(--danger);
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+
+/* --- Match breakdown --- */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.chip {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--bg-inset);
+  color: var(--fg-muted);
+}
+
+.chip.ok {
+  background: var(--chip-ok-bg, var(--bg-inset));
+  color: var(--success);
+}
+
+/* --- Status line --- */
+
+.status {
+  font-size: 12px;
+  color: var(--fg-muted);
+  min-height: 1.2em;
+  margin: 0;
+}
+
+.status.ok {
+  color: var(--success);
+}
+
+.status.error {
+  color: var(--danger);
+}
+
+.summary {
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+
+.nowrap {
+  white-space: nowrap;
+  flex-shrink: 0;
+}

@@ -29,7 +29,11 @@ chrome.runtime.onMessage.addListener(
         lastDetectedFields = detectFieldsForCurrentSite()
         sendResponse({
           ok: true,
-          data: lastDetectedFields.map((f) => ({ type: f.type, label: f.label })),
+          data: lastDetectedFields.map((f) => ({
+            type: f.type,
+            label: f.label,
+            control: f.control,
+          })),
         })
         return true
       }

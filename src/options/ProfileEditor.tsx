@@ -71,26 +71,53 @@ export default function ProfileEditor() {
   }
 
   return (
-    <section>
-      <h2>Profile</h2>
-      <p>
-        Upload a resume PDF to extract your profile (parsed entirely in your browser — the file is
-        never uploaded anywhere). Review and edit the result before saving.
-      </p>
-      <input type="file" accept="application/pdf" onChange={handleFileChange} disabled={busy} />
-      {status && <p style={{ fontSize: 13, color: '#555' }}>{status}</p>}
-      <textarea
-        value={profileJson}
-        onChange={(e) => setProfileJson(e.target.value)}
-        rows={20}
-        style={{ width: '100%', fontFamily: 'monospace', fontSize: 12 }}
-      />
-      <div>
-        <button onClick={handleSave} disabled={busy}>
+    <section className="stack">
+      <div className="stack-sm">
+        <h2>Step 2 — Profile</h2>
+        <p className="muted">
+          Upload a resume PDF to extract your profile. The PDF is parsed in your browser and never
+          uploaded; only the extracted text is sent to your AI provider. Review the result before
+          saving.
+        </p>
+      </div>
+
+      <div className="field">
+        <label htmlFor="resume">Resume PDF</label>
+        <input
+          id="resume"
+          type="file"
+          accept="application/pdf"
+          onChange={handleFileChange}
+          disabled={busy}
+        />
+      </div>
+
+      {status && (
+        <p className="notice">
+          {busy && <span className="spinner" style={{ display: 'inline-block', marginRight: 6 }} />}
+          {status}
+        </p>
+      )}
+
+      <div className="field">
+        <label htmlFor="profilejson">Profile (editable JSON)</label>
+        <textarea
+          id="profilejson"
+          value={profileJson}
+          onChange={(e) => setProfileJson(e.target.value)}
+          rows={18}
+          placeholder="Upload a resume above, or paste/write your profile JSON here."
+        />
+      </div>
+
+      <div className="row">
+        <button className="primary" onClick={handleSave} disabled={busy}>
           Save profile
         </button>
+        <span className="faint">
+          {profile.fullName ? `Saved: ${profile.fullName}` : 'No profile saved yet.'}
+        </span>
       </div>
-      <p style={{ fontSize: 12, color: '#888' }}>{profile.fullName ? `Loaded: ${profile.fullName}` : 'No profile saved yet.'}</p>
     </section>
   )
 }

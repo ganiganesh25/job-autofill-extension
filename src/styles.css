@@ -1,0 +1,321 @@
+/*
+ * Shared styling for the popup and options page.
+ *
+ * Deliberately a single plain stylesheet with custom properties rather than a
+ * CSS framework — same "un-clever" principle as the rest of the project, but
+ * the components no longer carry inline styles. Both surfaces follow the
+ * user's OS light/dark preference.
+ */
+
+:root {
+  --bg: #ffffff;
+  --bg-subtle: #f6f7f9;
+  --bg-inset: #eceef1;
+  --fg: #1a1d21;
+  --fg-muted: #5c636b;
+  --fg-faint: #858c94;
+  --border: #dcdfe3;
+  --accent: #2563eb;
+  --accent-fg: #ffffff;
+  --accent-hover: #1d4ed8;
+  --danger: #b42318;
+  --danger-bg: #fef3f2;
+  --success: #067647;
+
+  --radius: 6px;
+  --gap: 12px;
+  --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181c;
+    --bg-subtle: #1e2126;
+    --bg-inset: #272b31;
+    --fg: #e8eaed;
+    --fg-muted: #a3aab3;
+    --fg-faint: #7d848d;
+    --border: #333840;
+    --accent: #4d84f5;
+    --accent-fg: #0b0d10;
+    --accent-hover: #6d9bf8;
+    --danger: #f97066;
+    --danger-bg: #2d1a18;
+    --success: #47cd89;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* --- Typography --- */
+
+h1 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+
+p {
+  margin: 0;
+}
+
+.muted {
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.faint {
+  color: var(--fg-faint);
+  font-size: 12px;
+}
+
+.danger {
+  color: var(--danger);
+}
+
+/* --- Layout --- */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.stack-sm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
+
+/* --- Controls --- */
+
+button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--bg-inset);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+button.subtle {
+  background: transparent;
+  border-color: transparent;
+  color: var(--fg-muted);
+  padding: 4px 6px;
+}
+
+button.subtle:hover:not(:disabled) {
+  background: var(--bg-subtle);
+  color: var(--fg);
+}
+
+button.block {
+  width: 100%;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  width: 100%;
+}
+
+textarea {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+input[type='file'] {
+  padding: 6px;
+  background: var(--bg-subtle);
+  cursor: pointer;
+}
+
+label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  margin-bottom: 4px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- Surfaces --- */
+
+.card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+
+.notice {
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+
+.notice.danger {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* --- Status pill (field count, match score) --- */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-inset);
+  color: var(--fg-muted);
+}
+
+.pill.accent {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+/* --- Question list --- */
+
+.question {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.question:first-of-type {
+  border-top: 0;
+}
+
+.question-label {
+  font-size: 12px;
+  color: var(--fg);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.question button {
+  flex-shrink: 0;
+}
+
+/* --- Busy indicator --- */
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2s;
+  }
+}

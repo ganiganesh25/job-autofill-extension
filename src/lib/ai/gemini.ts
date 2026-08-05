@@ -3,6 +3,7 @@ import {
   buildMatchScoreUserPrompt,
   buildResumeExtractionUserPrompt,
   MATCH_SCORE_SYSTEM_PROMPT,
+  parseMatchScore,
   RESUME_EXTRACTION_SYSTEM_PROMPT,
 } from './prompts'
 import type { AiProvider, ProviderConfig } from './provider'
@@ -46,8 +47,7 @@ export function createGeminiProvider(config: ProviderConfig): AiProvider {
         MATCH_SCORE_SYSTEM_PROMPT,
         buildMatchScoreUserPrompt(profileSummary, jobDescription),
       )
-      const parsed = parseInt(result.trim(), 10)
-      return Number.isFinite(parsed) ? Math.min(100, Math.max(0, parsed)) : 0
+      return parseMatchScore(result)
     },
   }
 }

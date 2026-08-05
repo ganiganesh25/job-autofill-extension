@@ -25,6 +25,22 @@ export function buildMatchScoreUserPrompt(profileSummary: string, jobDescription
   return `Candidate profile:\n${profileSummary}\n\nJob description:\n${jobDescription}`
 }
 
+/**
+ * Pulls a 0-100 score out of a model response, or null if there isn't one.
+ *
+ * Models routinely ignore "respond with ONLY an integer" and answer "I'd rate
+ * this 85/100". parseInt on that yields NaN, and the previous `?? 0` fallback
+ * rendered every such failure as a confident "0% match" — indistinguishable
+ * from a genuine zero. Returning null lets the UI say it couldn't score.
+ */
+export function parseMatchScore(response: string): number | null {
+  const match = response.match(/\d{1,3}/)
+  if (!match) return null
+  const value = parseInt(match[0], 10)
+  if (!Number.isFinite(value)) return null
+  return Math.min(100, Math.max(0, value))
+}
+
 export function buildAnswerUserPrompt(prompt: string, context: string): string {
   return `Application question: ${prompt}\n\nCandidate context:\n${context}\n\nWrite a concise, first-person answer.`
 }

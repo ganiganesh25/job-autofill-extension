@@ -100,15 +100,29 @@ export default function App() {
     if (!tabId) return
     setBusy(true)
     let filled = 0
-    for (const field of fields) {
-      const value = profileValueForType(profile, field.type)
-      if (value) {
-        await sendToContentScript(tabId, { type: 'FILL_FIELD', index: field.index, value })
-        filled++
+    const failed: string[] = []
+    try {
+      for (const field of fields) {
+        const value = profileValueForType(profile, field.type)
+        if (!value) continue
+        // One unfillable field (detached node, navigated SPA) must not abort
+        // the whole run or leave `busy` stuck true — which disabled every
+        // button until the popup was reopened.
+        try {
+          await sendToContentScript(tabId, { type: 'FILL_FIELD', index: field.index, value })
+          filled++
+        } catch {
+          failed.push(field.label || field.type)
+        }
       }
+      setStatus(
+        failed.length > 0
+          ? `Filled ${filled} field(s); ${failed.length} failed — try Re-detect.`
+          : `Filled ${filled} field(s) from your profile.`,
+      )
+    } finally {
+      setBusy(false)
     }
-    setStatus(`Filled ${filled} field(s) from your profile.`)
-    setBusy(false)
   }
 
   async function handleGenerateAnswer(field: Field) {
@@ -141,13 +155,16 @@ export default function App() {
     setBusy(true)
     try {
       const pageText = await sendToContentScript<string>(tabId, { type: 'GET_PAGE_TEXT' })
-      const score = await sendToBackground<number>({
+      const score = await sendToBackground<number | null>({
         type: 'COMPUTE_MATCH_SCORE',
         provider,
         profileSummary: profileSummary(profile),
         jobDescription: pageText,
       })
       setMatchScore(score)
+      // null means the model replied without a usable number — say so rather
+      // than rendering it as a confident 0%.
+      setStatus(score === null ? "The model didn't return a usable score. Try again." : '')
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error))
     } finally {
@@ -173,7 +190,12 @@ export default function App() {
 
       {permissionPattern && hasPermission && (
         <>
-          <p style={{ fontSize: 13 }}>{fields.length} field(s) detected.</p>
+          <p style={{ fontSize: 13 }}>
+            {fields.length} field(s) detected.{' '}
+            <button onClick={() => tabId && loadFields(tabId)} disabled={busy}>
+              Re-detect
+            </button>
+          </p>
           <button onClick={handleFillKnownFields} disabled={busy || !profile.fullName}>
             Fill known fields from profile
           </button>
@@ -203,6 +225,12 @@ export default function App() {
       )}
 
       {status && <p style={{ fontSize: 12, color: '#555', marginTop: 12 }}>{status}</p>}
+
+      {/* The popup previously had no route to the options page at all — the
+          only way in was via chrome://extensions. */}
+      <p style={{ marginTop: 12 }}>
+        <button onClick={() => chrome.runtime.openOptionsPage()}>Open Settings</button>
+      </p>
     </div>
   )
 }

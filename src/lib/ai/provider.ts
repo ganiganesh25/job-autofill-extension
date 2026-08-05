@@ -9,8 +9,11 @@ export interface AiProvider {
   /** Extracts a structured profile (matching profile-schema.ts) from raw resume text. */
   extractProfileFromResumeText(resumeText: string): Promise<string> // returns raw JSON string
 
-  /** Returns a 0-100 match score between the profile and a job description. */
-  computeMatchScore(params: { profileSummary: string; jobDescription: string }): Promise<number>
+  /** Returns a 0-100 match score, or null if the model's reply contained no usable number. */
+  computeMatchScore(params: {
+    profileSummary: string
+    jobDescription: string
+  }): Promise<number | null>
 }
 
 export interface ProviderConfig {

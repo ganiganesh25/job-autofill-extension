@@ -1,50 +1,21 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import '../styles.css'
 import { sendToBackground, sendToContentScript } from '../lib/messaging'
+import { computeLocalMatch, type MatchResult } from '../lib/match-score'
 import { emptyProfile, type Profile } from '../lib/profile-schema'
 import { getActiveProvider, getProfile } from '../lib/storage'
+import { isAnswerable, previewValue, profileSummary, profileValueForType } from './field-values'
+import { FieldRow } from './FieldRow'
 import { matchSupportedSite } from './site-support'
 import type { AiProviderId } from '../lib/storage'
 import type { DetectedFieldSummary } from '../types/content-messages'
-import type { FieldType } from '../content/types'
 
-type Field = DetectedFieldSummary & { index: number }
+export type Field = DetectedFieldSummary & { index: number }
 
-function profileValueForType(profile: Profile, type: FieldType): string | null {
-  switch (type) {
-    case 'fullName':
-      return profile.fullName || null
-    case 'firstName':
-      return profile.fullName?.split(' ')[0] || null
-    case 'lastName': {
-      const parts = profile.fullName?.split(' ') ?? []
-      return parts.length > 1 ? parts[parts.length - 1] : null
-    }
-    case 'email':
-      return profile.email || null
-    case 'phone':
-      return profile.phone || null
-    case 'location':
-      return profile.location || null
-    case 'country':
-      return profile.country || null
-    case 'linkedin':
-      return profile.links?.linkedin || null
-    case 'github':
-      return profile.links?.github || null
-    case 'portfolio':
-      return profile.links?.portfolio || null
-    default:
-      return null
-  }
-}
+/** Per-field outcome of the last fill, keyed by field index. */
+export type FillOutcome = 'filled' | 'failed'
 
-function profileSummary(profile: Profile): string {
-  const experience = profile.workExperience
-    .map((w) => `${w.title} at ${w.company}`)
-    .join('; ')
-  return `${profile.fullName}. Skills: ${profile.skills.join(', ')}. Experience: ${experience}. ${profile.summary ?? ''}`
-}
+type Status = { tone: 'ok' | 'error' | 'info'; text: string } | null
 
 export default function App() {
   const [tabId, setTabId] = useState<number | null>(null)
@@ -52,17 +23,20 @@ export default function App() {
   const [permissionPattern, setPermissionPattern] = useState<string | null>(null)
   const [hasPermission, setHasPermission] = useState(false)
   const [fields, setFields] = useState<Field[]>([])
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [outcomes, setOutcomes] = useState<Record<number, FillOutcome>>({})
   const [profile, setProfile] = useState<Profile>(emptyProfile)
   const [provider, setProvider] = useState<AiProviderId | null>(null)
-  const [matchScore, setMatchScore] = useState<number | null>(null)
-  const [status, setStatus] = useState('')
+  const [match, setMatch] = useState<MatchResult | null>(null)
+  const [draft, setDraft] = useState<{ field: Field; text: string } | null>(null)
+  const [status, setStatus] = useState<Status>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     void (async () => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
       if (!tab?.id || !tab.url) {
-        setStatus('No active tab.')
+        setStatus({ tone: 'error', text: 'No active tab.' })
         return
       }
       setTabId(tab.id)
@@ -82,12 +56,50 @@ export default function App() {
 
   async function loadFields(id: number) {
     try {
-      const summaries = await sendToContentScript<DetectedFieldSummary[]>(id, { type: 'DETECT_FIELDS' })
-      setFields(summaries.map((f, index) => ({ ...f, index })))
-      setStatus(`Detected ${summaries.length} field(s).`)
+      const summaries = await sendToContentScript<DetectedFieldSummary[]>(id, {
+        type: 'DETECT_FIELDS',
+      })
+      const next = summaries.map((f, index) => ({ ...f, index }))
+      setFields(next)
+      setOutcomes({})
+      setStatus(null)
+      return next
     } catch {
-      setStatus('Could not reach this page — reload the tab and reopen this popup.')
+      setStatus({
+        tone: 'error',
+        text: 'Could not reach this page — reload the tab and reopen this popup.',
+      })
+      return []
     }
+  }
+
+  // Everything the profile can fill, paired with the value that would be
+  // written. Computing this up front is what lets the list preview the result
+  // before anything touches the page.
+  const fillable = useMemo(
+    () =>
+      fields
+        .map((field) => ({ field, value: profileValueForType(profile, field.type) }))
+        .filter((row): row is { field: Field; value: string } => row.value !== null),
+    [fields, profile],
+  )
+
+  const answerable = useMemo(() => fields.filter((f) => isAnswerable(f.type)), [fields])
+
+  // Default every fillable field to selected once detection lands. `fillable`
+  // is memoized on [fields, profile], so this re-runs when detection or the
+  // profile changes — not when the user toggles a checkbox.
+  useEffect(() => {
+    setSelected(new Set(fillable.map((r) => r.field.index)))
+  }, [fillable])
+
+  function toggle(index: number) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
+      return next
+    })
   }
 
   async function handleGrantPermission() {
@@ -95,45 +107,77 @@ export default function App() {
     const granted = await chrome.permissions.request({ origins: [permissionPattern] })
     setHasPermission(granted)
     if (granted) {
-      setStatus('Permission granted — reload the page, then reopen this popup.')
+      setStatus({ tone: 'info', text: 'Permission granted — reload the page, then reopen this popup.' })
     }
   }
 
-  async function handleFillKnownFields() {
+  async function handleFillSelected() {
     if (!tabId) return
     setBusy(true)
-    let filled = 0
-    const failed: string[] = []
+    const results: Record<number, FillOutcome> = {}
     try {
-      for (const field of fields) {
-        const value = profileValueForType(profile, field.type)
-        if (!value) continue
-        // One unfillable field (detached node, navigated SPA) must not abort
-        // the whole run or leave `busy` stuck true — which disabled every
-        // button until the popup was reopened.
+      for (const { field, value } of fillable) {
+        if (!selected.has(field.index)) continue
         try {
           await sendToContentScript(tabId, { type: 'FILL_FIELD', index: field.index, value })
-          filled++
+          results[field.index] = 'filled'
         } catch {
-          failed.push(field.label || field.type)
+          results[field.index] = 'failed'
         }
       }
+      setOutcomes(results)
+      // Drop what succeeded from the selection so the action button reflects
+      // what is still outstanding rather than re-offering finished work.
+      setSelected((prev) => {
+        const next = new Set(prev)
+        for (const [index, outcome] of Object.entries(results)) {
+          if (outcome === 'filled') next.delete(Number(index))
+        }
+        return next
+      })
+      const filled = Object.values(results).filter((r) => r === 'filled').length
+      const failed = Object.values(results).length - filled
       setStatus(
-        failed.length > 0
-          ? `Filled ${filled} field(s); ${failed.length} failed — try Re-detect.`
-          : `Filled ${filled} field(s) from your profile.`,
+        failed > 0
+          ? { tone: 'error', text: `Filled ${filled}. ${failed} could not be filled — see the list.` }
+          : { tone: 'ok', text: `Filled ${filled} field${filled === 1 ? '' : 's'}.` },
       )
     } finally {
       setBusy(false)
     }
   }
 
+  async function handleRetry(field: Field) {
+    if (!tabId) return
+    const row = fillable.find((r) => r.field.index === field.index)
+    if (!row) return
+    setBusy(true)
+    try {
+      await sendToContentScript(tabId, { type: 'FILL_FIELD', index: field.index, value: row.value })
+      setOutcomes((prev) => ({ ...prev, [field.index]: 'filled' }))
+      setSelected((prev) => {
+        const next = new Set(prev)
+        next.delete(field.index)
+        return next
+      })
+      setStatus({ tone: 'ok', text: `Filled "${field.label}".` })
+    } catch (error) {
+      setOutcomes((prev) => ({ ...prev, [field.index]: 'failed' }))
+      setStatus({ tone: 'error', text: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Answers are drafted into the popup, never written straight into the
+  // application. Insertion requires an explicit confirmation below.
   async function handleGenerateAnswer(field: Field) {
-    if (!tabId || !provider) {
-      setStatus('Set an AI provider in Settings first.')
+    if (!provider) {
+      setStatus({ tone: 'error', text: 'Set an AI provider in Settings first.' })
       return
     }
     setBusy(true)
+    setDraft({ field, text: '' })
     try {
       const answer = await sendToBackground<string>({
         type: 'GENERATE_ANSWER',
@@ -141,41 +185,52 @@ export default function App() {
         prompt: field.label || 'Tell us about yourself',
         context: profileSummary(profile),
       })
-      await sendToContentScript(tabId, { type: 'FILL_FIELD', index: field.index, value: answer })
-      setStatus(`Generated an answer for "${field.label}".`)
+      setDraft({ field, text: answer })
+      setStatus({ tone: 'info', text: 'Review the draft before inserting it.' })
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error))
+      setDraft(null)
+      setStatus({ tone: 'error', text: error instanceof Error ? error.message : String(error) })
     } finally {
       setBusy(false)
     }
   }
 
-  async function handleComputeMatchScore() {
-    if (!tabId || !provider) {
-      setStatus('Set an AI provider in Settings first.')
-      return
+  async function handleInsertDraft() {
+    if (!tabId || !draft) return
+    setBusy(true)
+    try {
+      await sendToContentScript(tabId, {
+        type: 'FILL_FIELD',
+        index: draft.field.index,
+        value: draft.text,
+      })
+      setOutcomes((prev) => ({ ...prev, [draft.field.index]: 'filled' }))
+      setStatus({ tone: 'ok', text: `Inserted into "${draft.field.label}".` })
+      setDraft(null)
+    } catch (error) {
+      setStatus({ tone: 'error', text: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setBusy(false)
     }
+  }
+
+  // No provider, no key, no network — see lib/match-score.ts.
+  async function handleComputeMatch() {
+    if (!tabId) return
     setBusy(true)
     try {
       const pageText = await sendToContentScript<string>(tabId, { type: 'GET_PAGE_TEXT' })
-      const score = await sendToBackground<number | null>({
-        type: 'COMPUTE_MATCH_SCORE',
-        provider,
-        profileSummary: profileSummary(profile),
-        jobDescription: pageText,
-      })
-      setMatchScore(score)
-      // null means the model replied without a usable number — say so rather
-      // than rendering it as a confident 0%.
-      setStatus(score === null ? "The model didn't return a usable score. Try again." : '')
+      setMatch(computeLocalMatch(profile.skills, profileSummary(profile), pageText))
+      setStatus(null)
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error))
+      setStatus({ tone: 'error', text: error instanceof Error ? error.message : String(error) })
     } finally {
       setBusy(false)
     }
   }
 
-  const openEndedFields = fields.filter((f) => f.type === 'openEnded' || f.type === 'coverLetter')
+  const selectedCount = fillable.filter((r) => selected.has(r.field.index)).length
+  const hasProfile = Boolean(profile.fullName)
 
   return (
     <div className="popup stack">
@@ -206,60 +261,154 @@ export default function App() {
       {permissionPattern && hasPermission && (
         <>
           <div className="row-between">
-            <span className="pill">{fields.length} fields detected</span>
-            <button className="subtle" onClick={() => tabId && loadFields(tabId)} disabled={busy}>
+            <span className="faint summary">
+              {fields.length} fields · {fillable.length} fillable · {answerable.length} question
+              {answerable.length === 1 ? '' : 's'}
+            </span>
+            <button className="subtle nowrap" onClick={() => tabId && loadFields(tabId)} disabled={busy}>
               Re-detect
             </button>
           </div>
 
-          {!profile.fullName ? (
-            <p className="notice danger">
-              No profile saved yet. Add one in Settings before filling forms.
-            </p>
-          ) : (
-            <button
-              className="primary block"
-              onClick={handleFillKnownFields}
-              disabled={busy || !profile.fullName}
-            >
-              Fill known fields from profile
-            </button>
+          {!hasProfile && (
+            <div className="notice danger stack-sm">
+              <span>No profile saved yet — there&apos;s nothing to fill with.</span>
+              <div>
+                <button onClick={() => chrome.runtime.openOptionsPage()}>Add your profile</button>
+              </div>
+            </div>
           )}
 
-          <div className="row-between">
-            <button onClick={handleComputeMatchScore} disabled={busy}>
-              Compute match %
-            </button>
-            {matchScore !== null && <span className="pill accent">{matchScore}%</span>}
-          </div>
-
-          {openEndedFields.length > 0 && (
+          {hasProfile && fillable.length > 0 && (
             <section className="stack-sm">
-              <h2>Open-ended questions</h2>
-              <div className="card">
-                {openEndedFields.map((f) => (
+              <h2>Will be filled</h2>
+              <div className="card list">
+                {fillable.map(({ field, value }) => (
+                  <FieldRow
+                    key={field.index}
+                    field={field}
+                    value={previewValue(field.type, value)}
+                    checked={selected.has(field.index)}
+                    outcome={outcomes[field.index]}
+                    disabled={busy}
+                    onToggle={() => toggle(field.index)}
+                    onRetry={() => handleRetry(field)}
+                  />
+                ))}
+              </div>
+              <button
+                className="primary block"
+                onClick={handleFillSelected}
+                disabled={busy || selectedCount === 0}
+              >
+                {selectedCount === 0
+                  ? 'Nothing selected'
+                  : `Fill ${selectedCount} field${selectedCount === 1 ? '' : 's'}`}
+              </button>
+            </section>
+          )}
+
+          {answerable.length > 0 && (
+            <section className="stack-sm">
+              <h2>Questions</h2>
+              <div className="card list">
+                {answerable.map((f) => (
                   <div className="question" key={f.index}>
                     <span className="question-label">{f.label || '(untitled question)'}</span>
                     <button onClick={() => handleGenerateAnswer(f)} disabled={busy}>
-                      Generate
+                      {outcomes[f.index] === 'filled' ? 'Redraft' : 'Draft'}
                     </button>
                   </div>
                 ))}
               </div>
             </section>
           )}
+
+          {draft && (
+            <section className="stack-sm">
+              <h2>Draft — not inserted yet</h2>
+              <p className="faint">{draft.field.label}</p>
+              <textarea
+                rows={7}
+                value={draft.text}
+                placeholder={busy ? 'Generating…' : ''}
+                onChange={(e) => setDraft({ ...draft, text: e.target.value })}
+              />
+              <div className="row">
+                <button
+                  className="primary"
+                  onClick={handleInsertDraft}
+                  disabled={busy || !draft.text.trim()}
+                >
+                  Insert into form
+                </button>
+                <button onClick={() => handleGenerateAnswer(draft.field)} disabled={busy}>
+                  Regenerate
+                </button>
+                <button className="subtle" onClick={() => setDraft(null)} disabled={busy}>
+                  Discard
+                </button>
+              </div>
+            </section>
+          )}
+
+          <section className="stack-sm">
+            <div className="row-between">
+              <button onClick={handleComputeMatch} disabled={busy || profile.skills.length === 0}>
+                Match this posting
+              </button>
+              {match && <span className="pill accent">{match.score}%</span>}
+            </div>
+            {match && (
+              <div className="card stack-sm">
+                {match.matched.length > 0 && (
+                  <div>
+                    <p className="faint">Matched</p>
+                    <div className="chips">
+                      {match.matched.map((s) => (
+                        <span className="chip ok" key={s}>
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {match.missing.length > 0 && (
+                  <div>
+                    <p className="faint">Wanted, not in your profile</p>
+                    <div className="chips">
+                      {match.missing.map((s) => (
+                        <span className="chip" key={s}>
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="faint">Computed on your device — no AI provider, no API key.</p>
+              </div>
+            )}
+          </section>
         </>
       )}
 
-      {status && <p className="faint">{status}</p>}
+      {/* Announced to assistive tech: every outcome in the popup lands here. */}
+      <p
+        className={status ? `status ${status.tone}` : 'status'}
+        role="status"
+        aria-live="polite"
+      >
+        {status?.text ?? ''}
+      </p>
 
       <hr className="divider" />
 
-      {/* The popup previously had no route to the options page at all — the
-          only way in was via chrome://extensions. */}
-      <button className="subtle" onClick={() => chrome.runtime.openOptionsPage()}>
-        Open Settings
-      </button>
+      <div className="row-between">
+        <button className="subtle" onClick={() => chrome.runtime.openOptionsPage()}>
+          Settings
+        </button>
+        <span className="faint">{provider ? `via ${provider}` : 'no AI provider set'}</span>
+      </div>
     </div>
   )
 }

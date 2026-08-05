@@ -12,12 +12,54 @@ import {
   setActiveProvider,
 } from '../lib/storage'
 
-const PROVIDERS: { id: AiProviderId; label: string; needsKey: boolean }[] = [
-  { id: 'openai', label: 'OpenAI', needsKey: true },
-  { id: 'anthropic', label: 'Anthropic', needsKey: true },
-  { id: 'gemini', label: 'Google Gemini', needsKey: true },
-  { id: 'ollama', label: 'Ollama (local, no key needed)', needsKey: false },
-  { id: 'openai-compatible', label: 'Other (OpenAI-compatible endpoint)', needsKey: true },
+interface ProviderInfo {
+  id: AiProviderId
+  label: string
+  needsKey: boolean
+  /** Where to get a key, shown inline so setup doesn't require leaving the page to guess. */
+  keyUrl?: string
+  defaultModel: string
+  needsBaseUrl?: boolean
+  hint?: string
+}
+
+const PROVIDERS: ProviderInfo[] = [
+  {
+    id: 'openai',
+    label: 'OpenAI',
+    needsKey: true,
+    keyUrl: 'https://platform.openai.com/api-keys',
+    defaultModel: 'gpt-4o-mini',
+  },
+  {
+    id: 'anthropic',
+    label: 'Anthropic',
+    needsKey: true,
+    keyUrl: 'https://console.anthropic.com/settings/keys',
+    defaultModel: 'claude-sonnet-5',
+  },
+  {
+    id: 'gemini',
+    label: 'Google Gemini',
+    needsKey: true,
+    keyUrl: 'https://aistudio.google.com/app/apikey',
+    defaultModel: 'gemini-1.5-flash',
+  },
+  {
+    id: 'ollama',
+    label: 'Ollama (local, no key needed)',
+    needsKey: false,
+    defaultModel: 'llama3.1',
+    hint: 'Runs entirely on your machine — no resume or job data leaves the device. Requires Ollama running locally (default http://localhost:11434).',
+  },
+  {
+    id: 'openai-compatible',
+    label: 'Other (OpenAI-compatible endpoint)',
+    needsKey: true,
+    defaultModel: 'depends on your endpoint',
+    needsBaseUrl: true,
+    hint: 'For Groq, OpenRouter, or any server speaking the OpenAI chat-completions format. Base URL is required.',
+  },
 ]
 
 export default function ProviderSettings() {
@@ -80,51 +122,106 @@ export default function ProviderSettings() {
   const providerInfo = PROVIDERS.find((p) => p.id === active)!
 
   return (
-    <section>
-      <h2>AI provider</h2>
-      <p>
-        Bring your own API key — nothing is sent anywhere except directly to the provider you
-        choose below. Keys are encrypted at rest and only decryptable for the current browser
-        session (they clear on browser restart, by design).
-      </p>
-      <label>
-        Provider:{' '}
-        <select value={active} onChange={(e) => setActive(e.target.value as AiProviderId)}>
+    <section className="stack">
+      <div className="stack-sm">
+        <h2>Step 1 — AI provider</h2>
+        <p className="muted">
+          Bring your own API key. Requests go straight from your browser to the provider you pick —
+          there is no server in between. Keys are encrypted at rest and only decryptable for the
+          current browser session, so you re-enter them after a browser restart by design.
+        </p>
+      </div>
+
+      <div className="field">
+        <label htmlFor="provider">Provider</label>
+        <select
+          id="provider"
+          value={active}
+          onChange={(e) => setActive(e.target.value as AiProviderId)}
+        >
           {PROVIDERS.map((p) => (
             <option key={p.id} value={p.id}>
               {p.label}
-              {keyStates[p.id] === 'ok' ? ' (configured)' : ''}
-              {keyStates[p.id] === 'stale' ? ' (needs re-entry)' : ''}
+              {keyStates[p.id] === 'ok' ? ' — configured' : ''}
+              {keyStates[p.id] === 'stale' ? ' — needs re-entry' : ''}
             </option>
           ))}
         </select>
-      </label>
-      <br />
+      </div>
+
+      {providerInfo.hint && <p className="notice">{providerInfo.hint}</p>}
+
       {needsReentry && (
-        <p style={{ fontSize: 13, color: '#a00' }}>
-          Your saved {providerInfo.label} key was encrypted in a previous browser session and can no
-          longer be decrypted — that&apos;s expected, since the encryption key is never written to
-          disk. Re-enter it below to continue.{' '}
-          <button onClick={handleClearStale}>Clear unrecoverable keys</button>
-        </p>
+        <div className="notice danger stack-sm">
+          <span>
+            Your saved {providerInfo.label} key was encrypted in a previous browser session and can
+            no longer be decrypted — expected, since the encryption key is never written to disk.
+            Re-enter it below.
+          </span>
+          <div>
+            <button onClick={handleClearStale}>Clear unrecoverable keys</button>
+          </div>
+        </div>
       )}
+
       {providerInfo.needsKey && (
-        <label>
-          API key: <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} style={{ width: 320 }} />
-        </label>
+        <div className="field">
+          <label htmlFor="apikey">
+            API key
+            {providerInfo.keyUrl && (
+              <>
+                {' — '}
+                <a href={providerInfo.keyUrl} target="_blank" rel="noreferrer">
+                  get one here
+                </a>
+              </>
+            )}
+          </label>
+          <input
+            id="apikey"
+            type="password"
+            autoComplete="off"
+            placeholder={needsReentry ? 'Re-enter your key' : 'Paste your API key'}
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+        </div>
       )}
-      <br />
-      <label>
-        Model (optional): <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="uses provider default" />
-      </label>
-      <br />
-      <label>
-        Base URL (optional): <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="uses provider default" style={{ width: 320 }} />
-      </label>
-      <br />
-      <button onClick={handleSave}>Save</button>
-      {providerInfo.needsKey && <button onClick={handleRemoveKey}>Remove key</button>}
-      {status && <p style={{ fontSize: 13, color: '#555' }}>{status}</p>}
+
+      <div className="field">
+        <label htmlFor="model">Model (optional)</label>
+        <input
+          id="model"
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          placeholder={`default: ${providerInfo.defaultModel}`}
+        />
+      </div>
+
+      <div className="field">
+        <label htmlFor="baseurl">
+          Base URL {providerInfo.needsBaseUrl ? '(required)' : '(optional)'}
+        </label>
+        <input
+          id="baseurl"
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          placeholder={
+            providerInfo.needsBaseUrl
+              ? 'https://your-endpoint.example/v1'
+              : 'uses provider default'
+          }
+        />
+      </div>
+
+      <div className="row">
+        <button className="primary" onClick={handleSave}>
+          Save
+        </button>
+        {providerInfo.needsKey && <button onClick={handleRemoveKey}>Remove key</button>}
+      </div>
+
+      {status && <p className="faint">{status}</p>}
     </section>
   )
 }

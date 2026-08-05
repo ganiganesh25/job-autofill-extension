@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import '../styles.css'
 import { sendToBackground, sendToContentScript } from '../lib/messaging'
 import { emptyProfile, type Profile } from '../lib/profile-schema'
 import { getActiveProvider, getProfile } from '../lib/storage'
@@ -175,62 +176,88 @@ export default function App() {
   const openEndedFields = fields.filter((f) => f.type === 'openEnded' || f.type === 'coverLetter')
 
   return (
-    <div style={{ padding: 16 }}>
-      <h1 style={{ fontSize: 16, margin: '0 0 8px' }}>Job Autofill</h1>
+    <div className="popup stack">
+      <div className="row-between">
+        <h1>Job Autofill</h1>
+        {busy && <div className="spinner" aria-label="Working" />}
+      </div>
 
       {!permissionPattern && hostname && (
-        <p style={{ fontSize: 13, color: '#666' }}>
-          {hostname} isn&apos;t a supported site yet (Greenhouse, Lever, Workday, LinkedIn only in v1).
+        <p className="notice">
+          <strong>{hostname}</strong> isn&apos;t a supported site yet — Greenhouse, Lever, Workday
+          and LinkedIn Easy Apply are supported so far.
         </p>
       )}
 
       {permissionPattern && !hasPermission && (
-        <button onClick={handleGrantPermission}>Enable Job Autofill for {hostname}</button>
+        <>
+          <p className="notice">
+            Job Autofill needs permission for this site before it can read the application form.
+            Nothing runs on {hostname} until you allow it.
+          </p>
+          <button className="primary block" onClick={handleGrantPermission}>
+            Enable for {hostname}
+          </button>
+        </>
       )}
 
       {permissionPattern && hasPermission && (
         <>
-          <p style={{ fontSize: 13 }}>
-            {fields.length} field(s) detected.{' '}
-            <button onClick={() => tabId && loadFields(tabId)} disabled={busy}>
+          <div className="row-between">
+            <span className="pill">{fields.length} fields detected</span>
+            <button className="subtle" onClick={() => tabId && loadFields(tabId)} disabled={busy}>
               Re-detect
             </button>
-          </p>
-          <button onClick={handleFillKnownFields} disabled={busy || !profile.fullName}>
-            Fill known fields from profile
-          </button>
-          {!profile.fullName && <p style={{ fontSize: 12, color: '#a00' }}>No profile saved — add one in Settings.</p>}
+          </div>
 
-          <div style={{ marginTop: 12 }}>
+          {!profile.fullName ? (
+            <p className="notice danger">
+              No profile saved yet. Add one in Settings before filling forms.
+            </p>
+          ) : (
+            <button
+              className="primary block"
+              onClick={handleFillKnownFields}
+              disabled={busy || !profile.fullName}
+            >
+              Fill known fields from profile
+            </button>
+          )}
+
+          <div className="row-between">
             <button onClick={handleComputeMatchScore} disabled={busy}>
               Compute match %
             </button>
-            {matchScore !== null && <span style={{ marginLeft: 8 }}>{matchScore}%</span>}
+            {matchScore !== null && <span className="pill accent">{matchScore}%</span>}
           </div>
 
           {openEndedFields.length > 0 && (
-            <div style={{ marginTop: 12 }}>
-              <p style={{ fontSize: 13, fontWeight: 600 }}>Open-ended questions</p>
-              {openEndedFields.map((f) => (
-                <div key={f.index} style={{ marginBottom: 6 }}>
-                  <span style={{ fontSize: 12 }}>{f.label || '(untitled question)'}</span>{' '}
-                  <button onClick={() => handleGenerateAnswer(f)} disabled={busy}>
-                    Generate
-                  </button>
-                </div>
-              ))}
-            </div>
+            <section className="stack-sm">
+              <h2>Open-ended questions</h2>
+              <div className="card">
+                {openEndedFields.map((f) => (
+                  <div className="question" key={f.index}>
+                    <span className="question-label">{f.label || '(untitled question)'}</span>
+                    <button onClick={() => handleGenerateAnswer(f)} disabled={busy}>
+                      Generate
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
           )}
         </>
       )}
 
-      {status && <p style={{ fontSize: 12, color: '#555', marginTop: 12 }}>{status}</p>}
+      {status && <p className="faint">{status}</p>}
+
+      <hr className="divider" />
 
       {/* The popup previously had no route to the options page at all — the
           only way in was via chrome://extensions. */}
-      <p style={{ marginTop: 12 }}>
-        <button onClick={() => chrome.runtime.openOptionsPage()}>Open Settings</button>
-      </p>
+      <button className="subtle" onClick={() => chrome.runtime.openOptionsPage()}>
+        Open Settings
+      </button>
     </div>
   )
 }

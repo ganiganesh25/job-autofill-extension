@@ -61,7 +61,7 @@ describe('isAnswerable', () => {
 // detail to anyone glancing at the window.
 describe('previewValue', () => {
   it('masks the local part of an email but keeps the domain', () => {
-    expect(previewValue('email', 'ganiganeshss79@gmail.com')).toBe('gan…@gmail.com')
+    expect(previewValue('email', 'someone@example.com')).toBe('som…@example.com')
   })
 
   it('leaves a short local part unabbreviated', () => {
